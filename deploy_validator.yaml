@@ -1,0 +1,66 @@
+---
+- name: 部署 aztec-start.sh 脚本并使用 PM2 启动 aztec 节点
+  hosts: all
+  become: yes
+  vars:
+    script_path: "/root/aztec-start.sh"
+
+  tasks:
+    - name: 确保 root 目录存在
+      file:
+        path: "/root"
+        state: directory
+        owner: root
+        group: root
+
+    - name: 写入 aztec-start.sh 文件
+      copy:
+        dest: "{{ script_path }}"
+        content: |
+          #!/bin/bash
+          
+          L1_RPC="http://192.168.1.10:8545"
+          BEACON_RPC="http://192.168.1.10:5052"
+          VALIDATOR_PRIVATE_KEY={{ validator_private_key }}
+          COINBASE_ADDRESS={{ coinbase_address }}
+          P2P_IP={{ p2p_ip }}
+          
+          aztec start --node --archiver --sequencer \
+            --network alpha-testnet \
+            --l1-rpc-urls $L1_RPC \
+            --l1-consensus-host-urls $BEACON_RPC \
+            --sequencer.validatorPrivateKey $VALIDATOR_PRIVATE_KEY \
+            --sequencer.coinbase $COINBASE_ADDRESS \
+            --p2p.p2pIp $P2P_IP \
+            --p2p.maxTxPoolSize 1000000000
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 停止已存在的 aztec 进程（如果存在）
+      ansible.builtin.shell: pm2 stop aztec-start || true
+      ignore_errors: yes
+
+    - name: 删除已存在的 aztec 进程（如果存在）
+      ansible.builtin.shell: pm2 delete aztec-start || true
+      ignore_errors: yes
+
+    - name: 使用 PM2 启动 aztec 进程
+      ansible.builtin.shell: |
+        export PATH="$HOME/.aztec/bin:$PATH"
+        pm2 start aztec-start.sh
+      args:
+        executable: /bin/bash
+
+    - name: 保存 PM2 配置
+      ansible.builtin.shell: pm2 save
+      args:
+        executable: /bin/bash
+
+    - name: 设置 PM2 开机自启
+      ansible.builtin.shell: pm2 startup
+      args:
+        executable: /bin/bash
+      register: pm2_startup_output
+      ignore_errors: yes
+
